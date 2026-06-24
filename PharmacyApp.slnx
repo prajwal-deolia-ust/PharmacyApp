@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="PharmacyApp.UnitTests/PharmacyApp.UnitTests.csproj" Id="9dbdd241-0461-47fc-9a88-819443b5b68e" />
   <Project Path="PharmacyApp/PharmacyApp.csproj" />
 </Solution>
