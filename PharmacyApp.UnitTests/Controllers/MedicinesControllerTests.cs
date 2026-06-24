@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Moq;
 using PharmacyApp.Controllers;
 using PharmacyApp.Models;
@@ -10,25 +9,14 @@ namespace PharmacyApp.UnitTests;
 [TestClass]
 public class MedicinesControllerTests
 {
-    private string _tempDir = string.Empty;
-    private MedicineService _service = null!;
+    private Mock<IMedicineService> _serviceMock = null!;
     private MedicinesController _controller = null!;
 
     [TestInitialize]
     public void Initialize()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-        var mockEnv = new Mock<IWebHostEnvironment>();
-        mockEnv.Setup(e => e.ContentRootPath).Returns(_tempDir);
-        _service = new MedicineService(mockEnv.Object);
-        _controller = new MedicinesController(_service);
-    }
-
-    [TestCleanup]
-    public void Cleanup()
-    {
-        if (Directory.Exists(_tempDir))
-            Directory.Delete(_tempDir, recursive: true);
+        _serviceMock = new Mock<IMedicineService>();
+        _controller = new MedicinesController(_serviceMock.Object);
     }
 
     // ── Constructor ──────────────────────────────────────────────────────────
@@ -36,15 +24,8 @@ public class MedicinesControllerTests
     [TestMethod]
     public void Constructor_WithService_CreatesInstance()
     {
-        // Arrange
-        var mockEnv = new Mock<IWebHostEnvironment>();
-        mockEnv.Setup(e => e.ContentRootPath).Returns(_tempDir);
-        var service = new MedicineService(mockEnv.Object);
+        var controller = new MedicinesController(_serviceMock.Object);
 
-        // Act
-        var controller = new MedicinesController(service);
-
-        // Assert
         Assert.IsNotNull(controller);
     }
 
@@ -53,10 +34,10 @@ public class MedicinesControllerTests
     [TestMethod]
     public void GetAll_NullSearch_WhenEmpty_ReturnsOkWithEmptyList()
     {
-        // Act
+        _serviceMock.Setup(s => s.GetAll(null)).Returns([]);
+
         var result = _controller.GetAll(null);
 
-        // Assert
         var ok = result as OkObjectResult;
         Assert.IsNotNull(ok);
         var list = ok.Value as List<Medicine>;
@@ -67,14 +48,14 @@ public class MedicinesControllerTests
     [TestMethod]
     public void GetAll_NullSearch_WithExistingMedicines_ReturnsOkWithAllMedicines()
     {
-        // Arrange
-        _service.Add(CreateMedicine("Aspirin"));
-        _service.Add(CreateMedicine("Ibuprofen"));
+        _serviceMock.Setup(s => s.GetAll(null)).Returns(
+        [
+            CreateMedicine("Aspirin"),
+            CreateMedicine("Ibuprofen"),
+        ]);
 
-        // Act
         var result = _controller.GetAll(null);
 
-        // Assert
         var ok = result as OkObjectResult;
         Assert.IsNotNull(ok);
         var list = ok.Value as List<Medicine>;
@@ -85,14 +66,10 @@ public class MedicinesControllerTests
     [TestMethod]
     public void GetAll_MatchingSearch_ReturnsOkWithFilteredList()
     {
-        // Arrange
-        _service.Add(CreateMedicine("Aspirin"));
-        _service.Add(CreateMedicine("Ibuprofen"));
+        _serviceMock.Setup(s => s.GetAll("Aspirin")).Returns([CreateMedicine("Aspirin")]);
 
-        // Act
         var result = _controller.GetAll("Aspirin");
 
-        // Assert
         var ok = result as OkObjectResult;
         Assert.IsNotNull(ok);
         var list = ok.Value as List<Medicine>;
@@ -104,13 +81,10 @@ public class MedicinesControllerTests
     [TestMethod]
     public void GetAll_NonMatchingSearch_ReturnsOkWithEmptyList()
     {
-        // Arrange
-        _service.Add(CreateMedicine("Aspirin"));
+        _serviceMock.Setup(s => s.GetAll("xyz-not-found")).Returns([]);
 
-        // Act
         var result = _controller.GetAll("xyz-not-found");
 
-        // Assert
         var ok = result as OkObjectResult;
         Assert.IsNotNull(ok);
         var list = ok.Value as List<Medicine>;
@@ -123,27 +97,25 @@ public class MedicinesControllerTests
     [TestMethod]
     public void GetById_ExistingId_ReturnsOkWithMedicine()
     {
-        // Arrange
-        var added = _service.Add(CreateMedicine("Paracetamol"));
+        var medicine = CreateMedicine("Paracetamol");
+        _serviceMock.Setup(s => s.GetById(medicine.Id)).Returns(medicine);
 
-        // Act
-        var result = _controller.GetById(added.Id);
+        var result = _controller.GetById(medicine.Id);
 
-        // Assert
         var ok = result as OkObjectResult;
         Assert.IsNotNull(ok);
-        var medicine = ok.Value as Medicine;
-        Assert.IsNotNull(medicine);
-        Assert.AreEqual(added.Id, medicine.Id);
+        var returned = ok.Value as Medicine;
+        Assert.IsNotNull(returned);
+        Assert.AreEqual(medicine.Id, returned.Id);
     }
 
     [TestMethod]
     public void GetById_NonExistingId_ReturnsNotFound()
     {
-        // Act
+        _serviceMock.Setup(s => s.GetById(It.IsAny<Guid>())).Returns((Medicine?)null);
+
         var result = _controller.GetById(Guid.NewGuid());
 
-        // Assert
         Assert.IsInstanceOfType<NotFoundResult>(result);
     }
 
@@ -152,52 +124,43 @@ public class MedicinesControllerTests
     [TestMethod]
     public void Create_InvalidModelState_ReturnsBadRequest()
     {
-        // Arrange
         _controller.ModelState.AddModelError("FullName", "Required");
 
-        // Act
         var result = _controller.Create(new Medicine());
 
-        // Assert
         Assert.IsInstanceOfType<BadRequestObjectResult>(result);
     }
 
     [TestMethod]
     public void Create_ValidMedicine_ReturnsCreatedAtActionResult()
     {
-        // Arrange
         var medicine = CreateMedicine("Ibuprofen");
+        _serviceMock.Setup(s => s.Add(medicine)).Returns(medicine);
 
-        // Act
         var result = _controller.Create(medicine);
 
-        // Assert
         Assert.IsInstanceOfType<CreatedAtActionResult>(result);
     }
 
     [TestMethod]
     public void Create_ValidMedicine_ActionNamePointsToGetById()
     {
-        // Arrange
         var medicine = CreateMedicine("Ibuprofen");
+        _serviceMock.Setup(s => s.Add(medicine)).Returns(medicine);
 
-        // Act
         var result = (CreatedAtActionResult)_controller.Create(medicine);
 
-        // Assert
         Assert.AreEqual(nameof(MedicinesController.GetById), result.ActionName);
     }
 
     [TestMethod]
     public void Create_ValidMedicine_RouteValuesContainCreatedId()
     {
-        // Arrange
         var medicine = CreateMedicine("Ibuprofen");
+        _serviceMock.Setup(s => s.Add(medicine)).Returns(medicine);
 
-        // Act
         var result = (CreatedAtActionResult)_controller.Create(medicine);
 
-        // Assert
         var returnedMed = result.Value as Medicine;
         Assert.IsNotNull(returnedMed);
         Assert.IsNotNull(result.RouteValues);
@@ -207,13 +170,11 @@ public class MedicinesControllerTests
     [TestMethod]
     public void Create_ValidMedicine_BodyContainsCreatedMedicine()
     {
-        // Arrange
         var medicine = CreateMedicine("Ibuprofen");
+        _serviceMock.Setup(s => s.Add(medicine)).Returns(medicine);
 
-        // Act
         var result = (CreatedAtActionResult)_controller.Create(medicine);
 
-        // Assert
         var returnedMed = result.Value as Medicine;
         Assert.IsNotNull(returnedMed);
         Assert.AreEqual("Ibuprofen", returnedMed.FullName);
@@ -224,28 +185,26 @@ public class MedicinesControllerTests
     [TestMethod]
     public void Update_ExistingId_ReturnsOkWithUpdatedMedicine()
     {
-        // Arrange
-        var added = _service.Add(CreateMedicine("OldName"));
-        var update = CreateMedicine("NewName");
+        var id = Guid.NewGuid();
+        var updated = CreateMedicine("NewName");
+        _serviceMock.Setup(s => s.Update(id, updated)).Returns(updated);
 
-        // Act
-        var result = _controller.Update(added.Id, update);
+        var result = _controller.Update(id, updated);
 
-        // Assert
         var ok = result as OkObjectResult;
         Assert.IsNotNull(ok);
-        var updated = ok.Value as Medicine;
-        Assert.IsNotNull(updated);
-        Assert.AreEqual("NewName", updated.FullName);
+        var medicine = ok.Value as Medicine;
+        Assert.IsNotNull(medicine);
+        Assert.AreEqual("NewName", medicine.FullName);
     }
 
     [TestMethod]
     public void Update_NonExistingId_ReturnsNotFound()
     {
-        // Act
+        _serviceMock.Setup(s => s.Update(It.IsAny<Guid>(), It.IsAny<Medicine>())).Returns((Medicine?)null);
+
         var result = _controller.Update(Guid.NewGuid(), CreateMedicine("Any"));
 
-        // Assert
         Assert.IsInstanceOfType<NotFoundResult>(result);
     }
 
@@ -254,23 +213,21 @@ public class MedicinesControllerTests
     [TestMethod]
     public void Delete_ExistingId_ReturnsNoContent()
     {
-        // Arrange
-        var added = _service.Add(CreateMedicine("Amoxicillin"));
+        var id = Guid.NewGuid();
+        _serviceMock.Setup(s => s.Delete(id)).Returns(true);
 
-        // Act
-        var result = _controller.Delete(added.Id);
+        var result = _controller.Delete(id);
 
-        // Assert
         Assert.IsInstanceOfType<NoContentResult>(result);
     }
 
     [TestMethod]
     public void Delete_NonExistingId_ReturnsNotFound()
     {
-        // Act
+        _serviceMock.Setup(s => s.Delete(It.IsAny<Guid>())).Returns(false);
+
         var result = _controller.Delete(Guid.NewGuid());
 
-        // Assert
         Assert.IsInstanceOfType<NotFoundResult>(result);
     }
 
@@ -278,6 +235,7 @@ public class MedicinesControllerTests
 
     private static Medicine CreateMedicine(string fullName) => new()
     {
+        Id = Guid.NewGuid(),
         FullName = fullName,
         ExpiryDate = DateTime.UtcNow.AddYears(1),
         Quantity = 10,

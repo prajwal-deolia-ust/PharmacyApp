@@ -8,9 +8,9 @@ namespace PharmacyApp.Controllers;
 [Route("api/[controller]")]
 public class SalesController : ControllerBase
 {
-    private readonly SaleService _service;
+    private readonly ISaleService _service;
 
-    public SalesController(SaleService service) => _service = service;
+    public SalesController(ISaleService service) => _service = service;
 
     [HttpGet]
     public IActionResult GetAll() => Ok(_service.GetAll());

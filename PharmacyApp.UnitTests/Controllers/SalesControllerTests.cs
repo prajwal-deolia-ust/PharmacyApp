@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Moq;
 using PharmacyApp.Controllers;
 using PharmacyApp.Models;
@@ -10,52 +9,35 @@ namespace PharmacyApp.UnitTests.Controllers;
 [TestClass]
 public class SalesControllerTests
 {
-    private Mock<IWebHostEnvironment> _envMock = null!;
-    private string _tempRoot = null!;
-    private MedicineService _medicineService = null!;
-    private SaleService _saleService = null!;
+    private Mock<ISaleService> _serviceMock = null!;
     private SalesController _controller = null!;
 
     [TestInitialize]
     public void TestInitialize()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), "SalesControllerTests_" + Guid.NewGuid());
-        Directory.CreateDirectory(_tempRoot);
-        _envMock = new Mock<IWebHostEnvironment>();
-        _envMock.Setup(e => e.ContentRootPath).Returns(_tempRoot);
-        _medicineService = new MedicineService(_envMock.Object);
-        _saleService = new SaleService(_envMock.Object, _medicineService);
-        _controller = new SalesController(_saleService);
+        _serviceMock = new Mock<ISaleService>();
+        _controller = new SalesController(_serviceMock.Object);
     }
 
-    [TestCleanup]
-    public void TestCleanup()
-    {
-        if (Directory.Exists(_tempRoot))
-            Directory.Delete(_tempRoot, true);
-    }
-
-    // Constructor tests
+    // ── Constructor ───────────────────────────────────────────────────────────
 
     [TestMethod]
     public void Constructor_ValidService_CreatesInstance()
     {
-        // Arrange & Act
-        var controller = new SalesController(_saleService);
+        var controller = new SalesController(_serviceMock.Object);
 
-        // Assert
         Assert.IsNotNull(controller);
     }
 
-    // GetAll tests
+    // ── GetAll ────────────────────────────────────────────────────────────────
 
     [TestMethod]
     public void GetAll_NoSales_ReturnsOkResultWithEmptyList()
     {
-        // Act
+        _serviceMock.Setup(s => s.GetAll()).Returns([]);
+
         var result = _controller.GetAll();
 
-        // Assert
         var ok = Assert.IsInstanceOfType<OkObjectResult>(result);
         var value = Assert.IsInstanceOfType<List<SaleRecord>>(ok.Value);
         Assert.IsEmpty(value);
@@ -64,20 +46,13 @@ public class SalesControllerTests
     [TestMethod]
     public void GetAll_WithRecordedSales_ReturnsOkResultWithAllSales()
     {
-        // Arrange
-        var medicine = _medicineService.Add(new Medicine
-        {
-            FullName = "Aspirin",
-            Quantity = 10,
-            Price = 5.0m,
-            ExpiryDate = DateTime.Now.AddYears(1),
-        });
-        _saleService.RecordSale(new SaleRecord { MedicineId = medicine.Id, QuantitySold = 2 });
+        _serviceMock.Setup(s => s.GetAll()).Returns(
+        [
+            new SaleRecord { Id = Guid.NewGuid(), MedicineName = "Aspirin", QuantitySold = 2 },
+        ]);
 
-        // Act
         var result = _controller.GetAll();
 
-        // Assert
         var ok = Assert.IsInstanceOfType<OkObjectResult>(result);
         var value = Assert.IsInstanceOfType<List<SaleRecord>>(ok.Value);
         Assert.HasCount(1, value);
@@ -86,26 +61,24 @@ public class SalesControllerTests
     [TestMethod]
     public void GetAll_ReturnsOkObjectResultWith200StatusCode()
     {
-        // Act
+        _serviceMock.Setup(s => s.GetAll()).Returns([]);
+
         var result = _controller.GetAll();
 
-        // Assert
         var ok = Assert.IsInstanceOfType<OkObjectResult>(result);
         Assert.AreEqual(200, ok.StatusCode);
     }
 
-    // RecordSale tests
+    // ── RecordSale ────────────────────────────────────────────────────────────
 
     [TestMethod]
     public void RecordSale_MedicineNotFound_ReturnsBadRequestWithMessage()
     {
-        // Arrange
-        var sale = new SaleRecord { MedicineId = Guid.NewGuid(), QuantitySold = 1 };
+        _serviceMock.Setup(s => s.RecordSale(It.IsAny<SaleRecord>()))
+                    .Returns((null, "Medicine not found."));
 
-        // Act
-        var result = _controller.RecordSale(sale);
+        var result = _controller.RecordSale(new SaleRecord { MedicineId = Guid.NewGuid(), QuantitySold = 1 });
 
-        // Assert
         var bad = Assert.IsInstanceOfType<BadRequestObjectResult>(result);
         var message = bad.Value?.GetType().GetProperty("message")?.GetValue(bad.Value)?.ToString();
         Assert.AreEqual("Medicine not found.", message);
@@ -114,20 +87,11 @@ public class SalesControllerTests
     [TestMethod]
     public void RecordSale_ZeroQuantity_ReturnsBadRequestWithMessage()
     {
-        // Arrange
-        var medicine = _medicineService.Add(new Medicine
-        {
-            FullName = "Aspirin",
-            Quantity = 10,
-            Price = 5.0m,
-            ExpiryDate = DateTime.Now.AddYears(1),
-        });
-        var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 0 };
+        _serviceMock.Setup(s => s.RecordSale(It.IsAny<SaleRecord>()))
+                    .Returns((null, "Quantity must be greater than zero."));
 
-        // Act
-        var result = _controller.RecordSale(sale);
+        var result = _controller.RecordSale(new SaleRecord { MedicineId = Guid.NewGuid(), QuantitySold = 0 });
 
-        // Assert
         var bad = Assert.IsInstanceOfType<BadRequestObjectResult>(result);
         var message = bad.Value?.GetType().GetProperty("message")?.GetValue(bad.Value)?.ToString();
         Assert.AreEqual("Quantity must be greater than zero.", message);
@@ -136,20 +100,11 @@ public class SalesControllerTests
     [TestMethod]
     public void RecordSale_NegativeQuantity_ReturnsBadRequestWithMessage()
     {
-        // Arrange
-        var medicine = _medicineService.Add(new Medicine
-        {
-            FullName = "Aspirin",
-            Quantity = 10,
-            Price = 5.0m,
-            ExpiryDate = DateTime.Now.AddYears(1),
-        });
-        var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = -5 };
+        _serviceMock.Setup(s => s.RecordSale(It.IsAny<SaleRecord>()))
+                    .Returns((null, "Quantity must be greater than zero."));
 
-        // Act
-        var result = _controller.RecordSale(sale);
+        var result = _controller.RecordSale(new SaleRecord { MedicineId = Guid.NewGuid(), QuantitySold = -5 });
 
-        // Assert
         var bad = Assert.IsInstanceOfType<BadRequestObjectResult>(result);
         var message = bad.Value?.GetType().GetProperty("message")?.GetValue(bad.Value)?.ToString();
         Assert.AreEqual("Quantity must be greater than zero.", message);
@@ -158,20 +113,11 @@ public class SalesControllerTests
     [TestMethod]
     public void RecordSale_InsufficientStock_ReturnsBadRequestWithMessage()
     {
-        // Arrange
-        var medicine = _medicineService.Add(new Medicine
-        {
-            FullName = "Aspirin",
-            Quantity = 5,
-            Price = 5.0m,
-            ExpiryDate = DateTime.Now.AddYears(1),
-        });
-        var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 10 };
+        _serviceMock.Setup(s => s.RecordSale(It.IsAny<SaleRecord>()))
+                    .Returns((null, "Insufficient stock. Available: 5"));
 
-        // Act
-        var result = _controller.RecordSale(sale);
+        var result = _controller.RecordSale(new SaleRecord { MedicineId = Guid.NewGuid(), QuantitySold = 10 });
 
-        // Assert
         var bad = Assert.IsInstanceOfType<BadRequestObjectResult>(result);
         var message = bad.Value?.GetType().GetProperty("message")?.GetValue(bad.Value)?.ToString();
         Assert.AreEqual("Insufficient stock. Available: 5", message);
@@ -180,20 +126,12 @@ public class SalesControllerTests
     [TestMethod]
     public void RecordSale_ValidSale_ReturnsCreatedAtActionResult()
     {
-        // Arrange
-        var medicine = _medicineService.Add(new Medicine
-        {
-            FullName = "Aspirin",
-            Quantity = 10,
-            Price = 5.0m,
-            ExpiryDate = DateTime.Now.AddYears(1),
-        });
-        var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 3 };
+        var medicineId = Guid.NewGuid();
+        var recorded = new SaleRecord { Id = Guid.NewGuid(), MedicineId = medicineId, MedicineName = "Aspirin", QuantitySold = 3, PricePerUnit = 5.0m };
+        _serviceMock.Setup(s => s.RecordSale(It.IsAny<SaleRecord>())).Returns((recorded, null));
 
-        // Act
-        var result = _controller.RecordSale(sale);
+        var result = _controller.RecordSale(new SaleRecord { MedicineId = medicineId, QuantitySold = 3 });
 
-        // Assert
         var created = Assert.IsInstanceOfType<CreatedAtActionResult>(result);
         Assert.AreEqual(nameof(_controller.GetAll), created.ActionName);
         Assert.IsNotNull(created.Value);
@@ -202,23 +140,23 @@ public class SalesControllerTests
     [TestMethod]
     public void RecordSale_ValidSale_ReturnedSaleHasCorrectData()
     {
-        // Arrange
-        var medicine = _medicineService.Add(new Medicine
+        var medicineId = Guid.NewGuid();
+        var recorded = new SaleRecord
         {
-            FullName = "Aspirin",
-            Quantity = 10,
-            Price = 5.0m,
-            ExpiryDate = DateTime.Now.AddYears(1),
-        });
-        var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 3, CustomerName = "Alice" };
+            Id           = Guid.NewGuid(),
+            MedicineId   = medicineId,
+            MedicineName = "Aspirin",
+            QuantitySold = 3,
+            PricePerUnit = 5.0m,
+            CustomerName = "Alice",
+        };
+        _serviceMock.Setup(s => s.RecordSale(It.IsAny<SaleRecord>())).Returns((recorded, null));
 
-        // Act
-        var result = _controller.RecordSale(sale);
+        var result = _controller.RecordSale(new SaleRecord { MedicineId = medicineId, QuantitySold = 3, CustomerName = "Alice" });
 
-        // Assert
         var created = Assert.IsInstanceOfType<CreatedAtActionResult>(result);
         var returnedSale = Assert.IsInstanceOfType<SaleRecord>(created.Value);
-        Assert.AreEqual(medicine.Id, returnedSale.MedicineId);
+        Assert.AreEqual(medicineId, returnedSale.MedicineId);
         Assert.AreEqual(3, returnedSale.QuantitySold);
         Assert.AreEqual("Alice", returnedSale.CustomerName);
         Assert.AreEqual("Aspirin", returnedSale.MedicineName);
@@ -228,21 +166,14 @@ public class SalesControllerTests
     [TestMethod]
     public void RecordSale_ValidSale_SaleAppearsInSubsequentGetAll()
     {
-        // Arrange
-        var medicine = _medicineService.Add(new Medicine
-        {
-            FullName = "Ibuprofen",
-            Quantity = 20,
-            Price = 8.0m,
-            ExpiryDate = DateTime.Now.AddYears(1),
-        });
-        var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 5 };
+        var medicineId = Guid.NewGuid();
+        var recorded = new SaleRecord { Id = Guid.NewGuid(), MedicineId = medicineId, QuantitySold = 5 };
+        _serviceMock.Setup(s => s.RecordSale(It.IsAny<SaleRecord>())).Returns((recorded, null));
+        _serviceMock.Setup(s => s.GetAll()).Returns([recorded]);
 
-        // Act
-        _controller.RecordSale(sale);
+        _controller.RecordSale(new SaleRecord { MedicineId = medicineId, QuantitySold = 5 });
         var result = _controller.GetAll();
 
-        // Assert
         var ok = Assert.IsInstanceOfType<OkObjectResult>(result);
         var sales = Assert.IsInstanceOfType<List<SaleRecord>>(ok.Value);
         Assert.HasCount(1, sales);
@@ -251,13 +182,11 @@ public class SalesControllerTests
     [TestMethod]
     public void RecordSale_BadRequest_Returns400StatusCode()
     {
-        // Arrange
-        var sale = new SaleRecord { MedicineId = Guid.NewGuid(), QuantitySold = 1 };
+        _serviceMock.Setup(s => s.RecordSale(It.IsAny<SaleRecord>()))
+                    .Returns((null, "Medicine not found."));
 
-        // Act
-        var result = _controller.RecordSale(sale);
+        var result = _controller.RecordSale(new SaleRecord { MedicineId = Guid.NewGuid(), QuantitySold = 1 });
 
-        // Assert
         var bad = Assert.IsInstanceOfType<BadRequestObjectResult>(result);
         Assert.AreEqual(400, bad.StatusCode);
     }

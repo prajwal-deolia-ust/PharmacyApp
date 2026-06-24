@@ -1,6 +1,6 @@
-﻿using Microsoft.AspNetCore.Hosting;
-using Moq;
+﻿using Moq;
 using PharmacyApp.Models;
+using PharmacyApp.Repositories;
 using PharmacyApp.Services;
 
 namespace PharmacyApp.UnitTests.Services;
@@ -8,85 +8,27 @@ namespace PharmacyApp.UnitTests.Services;
 [TestClass]
 public class SaleServiceTests
 {
-    private string _tempDir = null!;
-    private Mock<IWebHostEnvironment> _envMock = null!;
-    private MedicineService _medicineService = null!;
-    private SaleService _saleService = null!;
+    private Mock<ISaleRepository> _saleRepoMock = null!;
+    private Mock<IMedicineService> _medicineServiceMock = null!;
+    private SaleService _service = null!;
 
     [TestInitialize]
     public void Initialize()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-        Directory.CreateDirectory(_tempDir);
-
-        _envMock = new Mock<IWebHostEnvironment>();
-        _envMock.Setup(e => e.ContentRootPath).Returns(_tempDir);
-
-        _medicineService = new MedicineService(_envMock.Object);
-        _saleService = new SaleService(_envMock.Object, _medicineService);
-    }
-
-    [TestCleanup]
-    public void Cleanup()
-    {
-        if (Directory.Exists(_tempDir))
-            Directory.Delete(_tempDir, true);
-    }
-
-    // ── Constructor ────────────────────────────────────────────────────────────
-
-    [TestMethod]
-    public void Constructor_ValidEnv_CreatesDataDirectory()
-    {
-        // Arrange — a brand-new root dir that has no Data sub-directory yet
-        var freshDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-        Directory.CreateDirectory(freshDir);
-
-        try
-        {
-            var freshEnvMock = new Mock<IWebHostEnvironment>();
-            freshEnvMock.Setup(e => e.ContentRootPath).Returns(freshDir);
-
-            // Act
-            _ = new SaleService(freshEnvMock.Object, _medicineService);
-
-            // Assert
-            Assert.IsTrue(Directory.Exists(Path.Combine(freshDir, "Data")));
-        }
-        finally
-        {
-            Directory.Delete(freshDir, true);
-        }
-    }
-
-    [TestMethod]
-    public void Constructor_ValidEnv_StoresMedicineServiceForSubsequentCalls()
-    {
-        // Verifying the medicine service is wired up: RecordSale must delegate to it.
-        // If _medicineService were not stored, calling RecordSale would NullReferenceException.
-        var sale = new SaleRecord { MedicineId = Guid.NewGuid(), QuantitySold = 1 };
-
-        var (record, error) = _saleService.RecordSale(sale);
-
-        // MedicineService returns null for an unknown id → proves the stored service is invoked.
-        Assert.IsNull(record);
-        Assert.AreEqual("Medicine not found.", error);
+        _saleRepoMock = new Mock<ISaleRepository>();
+        _medicineServiceMock = new Mock<IMedicineService>();
+        _service = new SaleService(_saleRepoMock.Object, _medicineServiceMock.Object);
     }
 
     // ── GetAll ─────────────────────────────────────────────────────────────────
 
     [TestMethod]
-    public void GetAll_WhenNoSalesFileExists_ReturnsEmptyList()
+    public void GetAll_NoSales_ReturnsEmptyList()
     {
-        // Arrange — ensure sales.json is absent
-        var salesPath = Path.Combine(_tempDir, "Data", "sales.json");
-        if (File.Exists(salesPath))
-            File.Delete(salesPath);
+        _saleRepoMock.Setup(r => r.GetAll()).Returns([]);
 
-        // Act
-        var result = _saleService.GetAll();
+        var result = _service.GetAll();
 
-        // Assert
         Assert.IsNotNull(result);
         Assert.IsEmpty(result);
     }
@@ -94,15 +36,14 @@ public class SaleServiceTests
     [TestMethod]
     public void GetAll_AfterTwoSalesRecorded_ReturnsBothRecords()
     {
-        // Arrange
-        var medicine = AddMedicine("Ibuprofen", quantity: 100, price: 4.99m);
-        _saleService.RecordSale(new SaleRecord { MedicineId = medicine.Id, QuantitySold = 2 });
-        _saleService.RecordSale(new SaleRecord { MedicineId = medicine.Id, QuantitySold = 3 });
+        _saleRepoMock.Setup(r => r.GetAll()).Returns(
+        [
+            new SaleRecord { Id = Guid.NewGuid() },
+            new SaleRecord { Id = Guid.NewGuid() },
+        ]);
 
-        // Act
-        var result = _saleService.GetAll();
+        var result = _service.GetAll();
 
-        // Assert
         Assert.HasCount(2, result);
     }
 
@@ -111,13 +52,11 @@ public class SaleServiceTests
     [TestMethod]
     public void RecordSale_MedicineNotFound_ReturnsNullRecordAndError()
     {
-        // Arrange
+        _medicineServiceMock.Setup(s => s.GetById(It.IsAny<Guid>())).Returns((Medicine?)null);
         var sale = new SaleRecord { MedicineId = Guid.NewGuid(), QuantitySold = 1 };
 
-        // Act
-        var (record, error) = _saleService.RecordSale(sale);
+        var (record, error) = _service.RecordSale(sale);
 
-        // Assert
         Assert.IsNull(record);
         Assert.AreEqual("Medicine not found.", error);
     }
@@ -125,14 +64,12 @@ public class SaleServiceTests
     [TestMethod]
     public void RecordSale_ZeroQuantity_ReturnsNullRecordAndError()
     {
-        // Arrange
-        var medicine = AddMedicine("Aspirin", quantity: 20, price: 1.50m);
+        var medicine = MakeMedicine(quantity: 20, price: 1.50m);
+        _medicineServiceMock.Setup(s => s.GetById(medicine.Id)).Returns(medicine);
         var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 0 };
 
-        // Act
-        var (record, error) = _saleService.RecordSale(sale);
+        var (record, error) = _service.RecordSale(sale);
 
-        // Assert
         Assert.IsNull(record);
         Assert.AreEqual("Quantity must be greater than zero.", error);
     }
@@ -140,14 +77,12 @@ public class SaleServiceTests
     [TestMethod]
     public void RecordSale_NegativeQuantity_ReturnsNullRecordAndError()
     {
-        // Arrange
-        var medicine = AddMedicine("Aspirin", quantity: 20, price: 1.50m);
+        var medicine = MakeMedicine(quantity: 20, price: 1.50m);
+        _medicineServiceMock.Setup(s => s.GetById(medicine.Id)).Returns(medicine);
         var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = -5 };
 
-        // Act
-        var (record, error) = _saleService.RecordSale(sale);
+        var (record, error) = _service.RecordSale(sale);
 
-        // Assert
         Assert.IsNull(record);
         Assert.AreEqual("Quantity must be greater than zero.", error);
     }
@@ -155,14 +90,12 @@ public class SaleServiceTests
     [TestMethod]
     public void RecordSale_QuantityExceedsAvailableStock_ReturnsNullRecordAndError()
     {
-        // Arrange
-        var medicine = AddMedicine("Paracetamol", quantity: 5, price: 2m);
+        var medicine = MakeMedicine(quantity: 5, price: 2m);
+        _medicineServiceMock.Setup(s => s.GetById(medicine.Id)).Returns(medicine);
         var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 10 };
 
-        // Act
-        var (record, error) = _saleService.RecordSale(sale);
+        var (record, error) = _service.RecordSale(sale);
 
-        // Assert
         Assert.IsNull(record);
         Assert.AreEqual("Insufficient stock. Available: 5", error);
     }
@@ -172,30 +105,26 @@ public class SaleServiceTests
     [TestMethod]
     public void RecordSale_ValidSale_ReturnsNonNullRecordWithNullError()
     {
-        // Arrange
-        var medicine = AddMedicine("Amoxicillin", quantity: 30, price: 8m);
+        var medicine = MakeMedicine(quantity: 30, price: 8m, name: "Amoxicillin");
+        SetupSuccessfulSale(medicine);
         var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 5, CustomerName = "Alice" };
 
-        // Act
-        var (record, error) = _saleService.RecordSale(sale);
+        var (record, error) = _service.RecordSale(sale);
 
-        // Assert
         Assert.IsNotNull(record);
         Assert.IsNull(error);
     }
 
     [TestMethod]
-    public void RecordSale_ValidSale_SaleFieldsAreAssigned()
+    public void RecordSale_ValidSale_SaleFieldsAreAssignedFromMedicine()
     {
-        // Arrange
-        var medicine = AddMedicine("Amoxicillin", quantity: 30, price: 8m);
+        var medicine = MakeMedicine(quantity: 30, price: 8m, name: "Amoxicillin");
+        SetupSuccessfulSale(medicine);
         var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 5 };
         var beforeSale = DateTime.UtcNow;
 
-        // Act
-        var (record, _) = _saleService.RecordSale(sale);
+        var (record, _) = _service.RecordSale(sale);
 
-        // Assert
         Assert.IsNotNull(record);
         Assert.AreNotEqual(Guid.Empty, record.Id);
         Assert.AreEqual("Amoxicillin", record.MedicineName);
@@ -206,62 +135,62 @@ public class SaleServiceTests
     [TestMethod]
     public void RecordSale_ValidSale_ReducesMedicineQuantityBySoldAmount()
     {
-        // Arrange
-        var medicine = AddMedicine("Amoxicillin", quantity: 30, price: 8m);
+        var medicine = MakeMedicine(quantity: 30, price: 8m, name: "Amoxicillin");
+        SetupSuccessfulSale(medicine);
         var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 7 };
 
-        // Act
-        _saleService.RecordSale(sale);
+        _service.RecordSale(sale);
 
-        // Assert
-        var updated = _medicineService.GetById(medicine.Id);
-        Assert.IsNotNull(updated);
-        Assert.AreEqual(23, updated.Quantity);
+        _medicineServiceMock.Verify(s =>
+            s.Update(medicine.Id, It.Is<Medicine>(m => m.Quantity == 23)), Times.Once);
     }
 
     [TestMethod]
-    public void RecordSale_ValidSale_PersistsSaleRecordRetrievableViaGetAll()
+    public void RecordSale_ValidSale_PersistsSaleViaRepository()
     {
-        // Arrange
-        var medicine = AddMedicine("Amoxicillin", quantity: 30, price: 8m);
+        var medicine = MakeMedicine(quantity: 30, price: 8m, name: "Amoxicillin");
+        SetupSuccessfulSale(medicine);
         var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 5, CustomerName = "Bob" };
 
-        // Act
-        var (recorded, _) = _saleService.RecordSale(sale);
+        _service.RecordSale(sale);
 
-        // Assert
-        var allSales = _saleService.GetAll();
-        Assert.HasCount(1, allSales);
-        Assert.IsNotNull(recorded);
-        Assert.AreEqual(recorded.Id, allSales[0].Id);
+        _saleRepoMock.Verify(r => r.Add(It.IsAny<SaleRecord>()), Times.Once);
     }
 
     [TestMethod]
     public void RecordSale_ExactAvailableQuantity_SucceedsAndDrainsStock()
     {
-        // Arrange — sell exactly what is in stock (boundary: quantity == available)
-        var medicine = AddMedicine("Vitamin C", quantity: 10, price: 1m);
+        var medicine = MakeMedicine(quantity: 10, price: 1m, name: "Vitamin C");
+        SetupSuccessfulSale(medicine);
         var sale = new SaleRecord { MedicineId = medicine.Id, QuantitySold = 10 };
 
-        // Act
-        var (record, error) = _saleService.RecordSale(sale);
+        var (record, error) = _service.RecordSale(sale);
 
-        // Assert
         Assert.IsNotNull(record);
         Assert.IsNull(error);
-        var updated = _medicineService.GetById(medicine.Id);
-        Assert.IsNotNull(updated);
-        Assert.AreEqual(0, updated.Quantity);
+        _medicineServiceMock.Verify(s =>
+            s.Update(medicine.Id, It.Is<Medicine>(m => m.Quantity == 0)), Times.Once);
+    }
+
+    [TestMethod]
+    public void RecordSale_MedicineNotFound_NeverCallsRepositoryAdd()
+    {
+        _medicineServiceMock.Setup(s => s.GetById(It.IsAny<Guid>())).Returns((Medicine?)null);
+
+        _service.RecordSale(new SaleRecord { MedicineId = Guid.NewGuid(), QuantitySold = 1 });
+
+        _saleRepoMock.Verify(r => r.Add(It.IsAny<SaleRecord>()), Times.Never);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    private Medicine AddMedicine(string fullName, int quantity, decimal price) =>
-        _medicineService.Add(new Medicine
-        {
-            FullName = fullName,
-            Quantity = quantity,
-            Price = price,
-            ExpiryDate = DateTime.UtcNow.AddYears(1),
-        });
+    private static Medicine MakeMedicine(int quantity, decimal price, string name = "TestMed") =>
+        new() { Id = Guid.NewGuid(), FullName = name, Quantity = quantity, Price = price };
+
+    private void SetupSuccessfulSale(Medicine medicine)
+    {
+        _medicineServiceMock.Setup(s => s.GetById(medicine.Id)).Returns(medicine);
+        _medicineServiceMock.Setup(s => s.Update(medicine.Id, It.IsAny<Medicine>())).Returns(medicine);
+        _saleRepoMock.Setup(r => r.Add(It.IsAny<SaleRecord>())).Returns<SaleRecord>(s => s);
+    }
 }

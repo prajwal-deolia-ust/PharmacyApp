@@ -1,6 +1,6 @@
-﻿using Microsoft.AspNetCore.Hosting;
-using Moq;
+﻿using Moq;
 using PharmacyApp.Models;
+using PharmacyApp.Repositories;
 using PharmacyApp.Services;
 
 namespace PharmacyApp.UnitTests.Services;
@@ -8,50 +8,23 @@ namespace PharmacyApp.UnitTests.Services;
 [TestClass]
 public class MedicineServiceTests
 {
-    private Mock<IWebHostEnvironment> _envMock = null!;
-    private string _tempRoot = null!;
+    private Mock<IMedicineRepository> _repoMock = null!;
     private MedicineService _service = null!;
 
     [TestInitialize]
     public void TestInitialize()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), "MedicineServiceTests_" + Guid.NewGuid());
-        Directory.CreateDirectory(_tempRoot);
-        _envMock = new Mock<IWebHostEnvironment>();
-        _envMock.Setup(e => e.ContentRootPath).Returns(_tempRoot);
-        _service = new MedicineService(_envMock.Object);
+        _repoMock = new Mock<IMedicineRepository>();
+        _service = new MedicineService(_repoMock.Object);
     }
 
-    [TestCleanup]
-    public void TestCleanup()
-    {
-        if (Directory.Exists(_tempRoot))
-            Directory.Delete(_tempRoot, true);
-    }
-
-    // Constructor tests
+    // ── GetAll ─────────────────────────────────────────────────────────────────
 
     [TestMethod]
-    public void Constructor_ValidEnv_CreatesDataDirectory()
+    public void GetAll_NoMedicines_ReturnsEmptyList()
     {
-        var expectedDir = Path.Combine(_tempRoot, "Data");
-        Assert.IsTrue(Directory.Exists(expectedDir));
-    }
+        _repoMock.Setup(r => r.GetAll()).Returns([]);
 
-    [TestMethod]
-    public void Constructor_DataDirectoryAlreadyExists_DoesNotThrow()
-    {
-        // Data dir already created by TestInitialize; creating service again must not throw
-        var act = () => new MedicineService(_envMock.Object);
-        act();
-        Assert.IsTrue(Directory.Exists(Path.Combine(_tempRoot, "Data")));
-    }
-
-    // GetAll tests
-
-    [TestMethod]
-    public void GetAll_NoDataFile_ReturnsEmptyList()
-    {
         var result = _service.GetAll();
 
         Assert.IsNotNull(result);
@@ -61,8 +34,11 @@ public class MedicineServiceTests
     [TestMethod]
     public void GetAll_NullSearch_ReturnsAllMedicines()
     {
-        _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-        _service.Add(new Medicine { FullName = "Ibuprofen", Quantity = 20, Price = 8.0m, ExpiryDate = DateTime.Now.AddYears(1) });
+        _repoMock.Setup(r => r.GetAll()).Returns(
+        [
+            new Medicine { FullName = "Aspirin",   Quantity = 10, Price = 5.0m },
+            new Medicine { FullName = "Ibuprofen", Quantity = 20, Price = 8.0m },
+        ]);
 
         var result = _service.GetAll(null);
 
@@ -72,7 +48,10 @@ public class MedicineServiceTests
     [TestMethod]
     public void GetAll_EmptySearch_ReturnsAllMedicines()
     {
-        _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
+        _repoMock.Setup(r => r.GetAll()).Returns(
+        [
+            new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m },
+        ]);
 
         var result = _service.GetAll(string.Empty);
 
@@ -82,7 +61,10 @@ public class MedicineServiceTests
     [TestMethod]
     public void GetAll_WhitespaceSearch_ReturnsAllMedicines()
     {
-        _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
+        _repoMock.Setup(r => r.GetAll()).Returns(
+        [
+            new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m },
+        ]);
 
         var result = _service.GetAll("   ");
 
@@ -92,8 +74,11 @@ public class MedicineServiceTests
     [TestMethod]
     public void GetAll_SearchMatchesSome_ReturnsFilteredList()
     {
-        _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-        _service.Add(new Medicine { FullName = "Ibuprofen", Quantity = 20, Price = 8.0m, ExpiryDate = DateTime.Now.AddYears(1) });
+        _repoMock.Setup(r => r.GetAll()).Returns(
+        [
+            new Medicine { FullName = "Aspirin",   Quantity = 10, Price = 5.0m },
+            new Medicine { FullName = "Ibuprofen", Quantity = 20, Price = 8.0m },
+        ]);
 
         var result = _service.GetAll("aspirin");
 
@@ -104,7 +89,10 @@ public class MedicineServiceTests
     [TestMethod]
     public void GetAll_SearchIsCaseInsensitive_ReturnsMatchingMedicines()
     {
-        _service.Add(new Medicine { FullName = "Aspirin Plus", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
+        _repoMock.Setup(r => r.GetAll()).Returns(
+        [
+            new Medicine { FullName = "Aspirin Plus", Quantity = 10, Price = 5.0m },
+        ]);
 
         var result = _service.GetAll("ASPIRIN");
 
@@ -115,175 +103,121 @@ public class MedicineServiceTests
     [TestMethod]
     public void GetAll_SearchMatchesNone_ReturnsEmptyList()
     {
-        _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
+        _repoMock.Setup(r => r.GetAll()).Returns(
+        [
+            new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m },
+        ]);
 
         var result = _service.GetAll("Paracetamol");
 
         Assert.IsEmpty(result);
     }
 
-    // GetById tests
+    // ── GetById ────────────────────────────────────────────────────────────────
 
     [TestMethod]
     public void GetById_ExistingId_ReturnsMedicine()
     {
-        var added = _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
+        var id = Guid.NewGuid();
+        var medicine = new Medicine { Id = id, FullName = "Aspirin" };
+        _repoMock.Setup(r => r.GetById(id)).Returns(medicine);
 
-        var result = _service.GetById(added.Id);
+        var result = _service.GetById(id);
 
         Assert.IsNotNull(result);
-        Assert.AreEqual(added.Id, result.Id);
+        Assert.AreEqual(id, result.Id);
         Assert.AreEqual("Aspirin", result.FullName);
     }
 
     [TestMethod]
     public void GetById_NonExistingId_ReturnsNull()
     {
+        _repoMock.Setup(r => r.GetById(It.IsAny<Guid>())).Returns((Medicine?)null);
+
         var result = _service.GetById(Guid.NewGuid());
 
         Assert.IsNull(result);
     }
 
-    [TestMethod]
-    public void GetById_EmptyStore_ReturnsNull()
-    {
-        var result = _service.GetById(Guid.NewGuid());
-
-        Assert.IsNull(result);
-    }
-
-    // Add tests
+    // ── Add ────────────────────────────────────────────────────────────────────
 
     [TestMethod]
-    public void Add_NewMedicine_AssignsNonEmptyGuid()
+    public void Add_NewMedicine_AssignsNewGuidBeforePassingToRepository()
     {
-        var medicine = new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) };
+        var medicine = new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m };
+        _repoMock.Setup(r => r.Add(It.IsAny<Medicine>())).Returns<Medicine>(m => m);
 
         var result = _service.Add(medicine);
 
         Assert.AreNotEqual(Guid.Empty, result.Id);
+        _repoMock.Verify(r => r.Add(It.Is<Medicine>(m => m.Id != Guid.Empty)), Times.Once);
     }
 
     [TestMethod]
-    public void Add_NewMedicine_PersistsMedicineToFile()
+    public void Add_NewMedicine_DelegatesToRepository()
     {
-        var medicine = new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) };
+        var medicine = new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m };
+        _repoMock.Setup(r => r.Add(It.IsAny<Medicine>())).Returns<Medicine>(m => m);
 
         _service.Add(medicine);
-        var all = _service.GetAll();
 
-        Assert.HasCount(1, all);
-        Assert.AreEqual("Aspirin", all[0].FullName);
+        _repoMock.Verify(r => r.Add(It.IsAny<Medicine>()), Times.Once);
     }
 
-    [TestMethod]
-    public void Add_NewMedicine_ReturnsMedicineWithAssignedId()
-    {
-        var medicine = new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) };
+    // ── Update ─────────────────────────────────────────────────────────────────
 
-        var result = _service.Add(medicine);
+    [TestMethod]
+    public void Update_ExistingId_ReturnsUpdatedMedicine()
+    {
+        var id = Guid.NewGuid();
+        var updated = new Medicine { FullName = "Aspirin Extra", Quantity = 15, Price = 6.5m };
+        _repoMock.Setup(r => r.Update(id, updated)).Returns(updated);
+
+        var result = _service.Update(id, updated);
 
         Assert.IsNotNull(result);
-        Assert.AreEqual(medicine.Id, result.Id);
-        Assert.AreEqual("Aspirin", result.FullName);
+        Assert.AreEqual("Aspirin Extra", result.FullName);
     }
-
-    [TestMethod]
-    public void Add_MultipleMedicines_AllPersisted()
-    {
-        _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-        _service.Add(new Medicine { FullName = "Ibuprofen", Quantity = 20, Price = 8.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-
-        var all = _service.GetAll();
-
-        Assert.HasCount(2, all);
-    }
-
-    // Update tests
 
     [TestMethod]
     public void Update_NonExistingId_ReturnsNull()
     {
-        var result = _service.Update(Guid.NewGuid(), new Medicine { FullName = "Updated", Quantity = 5, Price = 3.0m });
+        _repoMock.Setup(r => r.Update(It.IsAny<Guid>(), It.IsAny<Medicine>())).Returns((Medicine?)null);
+
+        var result = _service.Update(Guid.NewGuid(), new Medicine());
 
         Assert.IsNull(result);
     }
 
     [TestMethod]
-    public void Update_ExistingId_ReturnsUpdatedMedicine()
+    public void Update_AnyId_DelegatesToRepository()
     {
-        var added = _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-        var updated = new Medicine { FullName = "Aspirin Extra", Quantity = 15, Price = 6.5m, ExpiryDate = DateTime.Now.AddYears(2) };
+        var id = Guid.NewGuid();
+        var medicine = new Medicine();
+        _repoMock.Setup(r => r.Update(id, medicine)).Returns(medicine);
 
-        var result = _service.Update(added.Id, updated);
+        _service.Update(id, medicine);
 
-        Assert.IsNotNull(result);
-        Assert.AreEqual("Aspirin Extra", result.FullName);
-        Assert.AreEqual(15, result.Quantity);
+        _repoMock.Verify(r => r.Update(id, medicine), Times.Once);
     }
 
-    [TestMethod]
-    public void Update_ExistingId_SetsCorrectIdOnUpdatedMedicine()
-    {
-        var added = _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-        var updated = new Medicine { FullName = "Aspirin Extra", Quantity = 15, Price = 6.5m };
-
-        var result = _service.Update(added.Id, updated);
-
-        Assert.IsNotNull(result);
-        Assert.AreEqual(added.Id, result.Id);
-    }
-
-    [TestMethod]
-    public void Update_ExistingId_PersistsChangesToFile()
-    {
-        var added = _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-        var updated = new Medicine { FullName = "Aspirin Extra", Quantity = 15, Price = 6.5m };
-
-        _service.Update(added.Id, updated);
-        var found = _service.GetById(added.Id);
-
-        Assert.IsNotNull(found);
-        Assert.AreEqual("Aspirin Extra", found.FullName);
-        Assert.AreEqual(15, found.Quantity);
-    }
-
-    [TestMethod]
-    public void Update_NonExistingId_DoesNotModifyExistingData()
-    {
-        var added = _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-
-        _service.Update(Guid.NewGuid(), new Medicine { FullName = "Fake", Quantity = 99, Price = 1.0m });
-        var all = _service.GetAll();
-
-        Assert.HasCount(1, all);
-        Assert.AreEqual("Aspirin", all[0].FullName);
-    }
-
-    // Delete tests
+    // ── Delete ─────────────────────────────────────────────────────────────────
 
     [TestMethod]
     public void Delete_ExistingId_ReturnsTrue()
     {
-        var added = _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
+        var id = Guid.NewGuid();
+        _repoMock.Setup(r => r.Delete(id)).Returns(true);
 
-        var result = _service.Delete(added.Id);
+        var result = _service.Delete(id);
 
         Assert.IsTrue(result);
     }
 
     [TestMethod]
-    public void Delete_NonExistingId_EmptyStore_ReturnsFalse()
+    public void Delete_NonExistingId_ReturnsFalse()
     {
-        var result = _service.Delete(Guid.NewGuid());
-
-        Assert.IsFalse(result);
-    }
-
-    [TestMethod]
-    public void Delete_NonExistingId_WithData_ReturnsFalse()
-    {
-        _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
+        _repoMock.Setup(r => r.Delete(It.IsAny<Guid>())).Returns(false);
 
         var result = _service.Delete(Guid.NewGuid());
 
@@ -291,61 +225,13 @@ public class MedicineServiceTests
     }
 
     [TestMethod]
-    public void Delete_ExistingId_RemovesMedicineFromStore()
+    public void Delete_AnyId_DelegatesToRepository()
     {
-        var added = _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
+        var id = Guid.NewGuid();
+        _repoMock.Setup(r => r.Delete(id)).Returns(true);
 
-        _service.Delete(added.Id);
-        var all = _service.GetAll();
+        _service.Delete(id);
 
-        Assert.IsEmpty(all);
-    }
-
-    [TestMethod]
-    public void Delete_ExistingId_RemovesOnlyTargetMedicine()
-    {
-        var first = _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-        var second = _service.Add(new Medicine { FullName = "Ibuprofen", Quantity = 20, Price = 8.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-
-        _service.Delete(first.Id);
-        var all = _service.GetAll();
-
-        Assert.HasCount(1, all);
-        Assert.AreEqual(second.Id, all[0].Id);
-        Assert.AreEqual("Ibuprofen", all[0].FullName);
-    }
-
-    [TestMethod]
-    public void Delete_ExistingId_MedicineNoLongerFoundById()
-    {
-        var added = _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-
-        _service.Delete(added.Id);
-        var found = _service.GetById(added.Id);
-
-        Assert.IsNull(found);
-    }
-
-    [TestMethod]
-    public void Delete_AlreadyDeletedId_ReturnsFalse()
-    {
-        var added = _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-        _service.Delete(added.Id);
-
-        var result = _service.Delete(added.Id);
-
-        Assert.IsFalse(result);
-    }
-
-    [TestMethod]
-    public void Delete_NonExistingId_DoesNotModifyExistingData()
-    {
-        _service.Add(new Medicine { FullName = "Aspirin", Quantity = 10, Price = 5.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-        _service.Add(new Medicine { FullName = "Ibuprofen", Quantity = 20, Price = 8.0m, ExpiryDate = DateTime.Now.AddYears(1) });
-
-        _service.Delete(Guid.NewGuid());
-        var all = _service.GetAll();
-
-        Assert.HasCount(2, all);
+        _repoMock.Verify(r => r.Delete(id), Times.Once);
     }
 }
