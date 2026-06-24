@@ -1,0 +1,25 @@
+using Microsoft.AspNetCore.Mvc;
+using PharmacyApp.Models;
+using PharmacyApp.Services;
+
+namespace PharmacyApp.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class SalesController : ControllerBase
+{
+    private readonly SaleService _service;
+
+    public SalesController(SaleService service) => _service = service;
+
+    [HttpGet]
+    public IActionResult GetAll() => Ok(_service.GetAll());
+
+    [HttpPost]
+    public IActionResult RecordSale([FromBody] SaleRecord sale)
+    {
+        var (record, error) = _service.RecordSale(sale);
+        if (error != null) return BadRequest(new { message = error });
+        return CreatedAtAction(nameof(GetAll), record);
+    }
+}
