@@ -7,6 +7,7 @@ public class SaleService
 {
     private readonly string _salesPath;
     private readonly MedicineService _medicineService;
+    private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -16,6 +17,7 @@ public class SaleService
     public SaleService(IWebHostEnvironment env, MedicineService medicineService)
     {
         _salesPath = Path.Combine(env.ContentRootPath, "Data", "sales.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(_salesPath)!);
         _medicineService = medicineService;
     }
 
@@ -32,29 +34,37 @@ public class SaleService
         File.WriteAllText(_salesPath, json);
     }
 
-    public List<SaleRecord> GetAll() => ReadAll();
+    public List<SaleRecord> GetAll()
+    {
+        _lock.Wait();
+        try { return ReadAll(); }
+        finally { _lock.Release(); }
+    }
 
     public (SaleRecord? record, string? error) RecordSale(SaleRecord sale)
     {
-        var medicine = _medicineService.GetById(sale.MedicineId);
-        if (medicine == null) return (null, "Medicine not found.");
-        if (sale.QuantitySold <= 0) return (null, "Quantity must be greater than zero.");
-        if (sale.QuantitySold > medicine.Quantity) return (null, $"Insufficient stock. Available: {medicine.Quantity}");
+        _lock.Wait();
+        try
+        {
+            var medicine = _medicineService.GetById(sale.MedicineId);
+            if (medicine == null) return (null, "Medicine not found.");
+            if (sale.QuantitySold <= 0) return (null, "Quantity must be greater than zero.");
+            if (sale.QuantitySold > medicine.Quantity) return (null, $"Insufficient stock. Available: {medicine.Quantity}");
 
-        // Deduct stock
-        medicine.Quantity -= sale.QuantitySold;
-        _medicineService.Update(medicine.Id, medicine);
+            medicine.Quantity -= sale.QuantitySold;
+            _medicineService.Update(medicine.Id, medicine);
 
-        // Save sale
-        sale.Id = Guid.NewGuid();
-        sale.MedicineName = medicine.FullName;
-        sale.PricePerUnit = medicine.Price;
-        sale.SaleDate = DateTime.UtcNow;
+            sale.Id = Guid.NewGuid();
+            sale.MedicineName = medicine.FullName;
+            sale.PricePerUnit = medicine.Price;
+            sale.SaleDate = DateTime.UtcNow;
 
-        var records = ReadAll();
-        records.Add(sale);
-        WriteAll(records);
+            var records = ReadAll();
+            records.Add(sale);
+            WriteAll(records);
 
-        return (sale, null);
+            return (sale, null);
+        }
+        finally { _lock.Release(); }
     }
 }
